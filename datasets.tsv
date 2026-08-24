@@ -1,0 +1,8 @@
+# repo_id					revision					stage		category	enabled	license		notes
+HuggingFaceFW/fineweb				9bb295ddab0e05d785b879661af7260fed5140fc	pretrain	general		no	odc-by		Broad English web corpus
+HuggingFaceFW/fineweb-edu			87f09149ef4734204d70ed1d046ddc9ca3f2b8f9	pretrain	general		no	odc-by		Educational and high-quality English web corpus
+allenai/dolma3_mix-6T-1025-7B			2ca900fbe14e86c5c83d064d9f0882f1c0b8c05b	pretrain	mixed		no	odc-by		Ready-made Dolma 3 pretraining mixture
+HuggingFaceFW/fineweb-2				af9c13333eb981300149d5ca60a8e9d659b276b9	pretrain	multilingual	no	odc-by		Multilingual FineWeb corpus
+HuggingFaceTB/finemath				e92b25a616738fe95dc186b64dfb19f9c8525594	pretrain	math		y	es		odc-by	High-quality mathematical web corpus
+allenai/dolma3_dolmino_mix-100B-1025		f23942ae8a8114af6e992efe8188ce8c531acd16	midtrain	mixed		no	odc-by		100B-token OLMo 3 midtraining and annealing mixture
+nvidia/Nemotron-Pretraining-Specialized-v1	9ed3718b5f2ae29074c5e34e64115432b7c4320f	midtrain	stem		no	cc-by-4.0	Specialized STEM, reasoning, math, and scientific coding data
