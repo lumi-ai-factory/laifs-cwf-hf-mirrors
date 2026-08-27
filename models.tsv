@@ -1,0 +1,4 @@
+# repo_id		revision					task			category	enabled	license		notes
+Qwen/Qwen3.8-27B-FP8	017b9c7af6b5689d5dd426a76e0bc077eb5ca20a	image-text-to-text	fp8		yes	apache-2.0	FP8-quantized Qwen3.8 27B multimodal model
+unsloth/Llama-3.2-3B	d4446454d87d51aa42e1fb174f25acc5f8762331	text-generation		base		yes	llama3.2	Llama 3.2 3B base model in standard Transformers format
+zai-org/GLM-5.3-Flash	3f1971b7b5f7a528c9c4ef6212c8785298a8c24a	text-generation		instruct	yes	mit		English and Chinese mixture-of-experts model

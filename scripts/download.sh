@@ -4,25 +4,23 @@ set -u
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
-MANIFEST=${MANIFEST:-$REPO_ROOT/datasets.tsv}
-DATASETS_ROOT=${DATASETS_ROOT:-/appl/local/laifs/datasets}
-STAGING_ROOT=$DATASETS_ROOT/.staging
-LOCK_DIR=$STAGING_ROOT/.download.lock
 
 dry_run=no
 repo_filter=
+repo_type=dataset
 lock_acquired=no
 
 usage() {
     cat <<EOF
-Usage: $0 [--dry-run] [REPO_ID]
+Usage: $0 [--type dataset|model] [--dry-run] [REPO_ID]
 
-Without REPO_ID, process datasets enabled in $MANIFEST.
-With REPO_ID, process that dataset regardless of its enabled value.
+Without REPO_ID, process enabled entries in the selected manifest.
+With REPO_ID, process that repository regardless of its enabled value.
 
 Environment:
-  DATASETS_ROOT  Dataset destination (default: $DATASETS_ROOT)
-  MANIFEST       Manifest path (default: $MANIFEST)
+  DATASETS_ROOT  Dataset destination (default: /appl/local/laifs/datasets)
+  MODELS_ROOT    Model destination (default: /appl/local/laifs/models)
+  MANIFEST       Override the selected manifest path
 EOF
 }
 
@@ -49,31 +47,40 @@ valid_datasets_root() {
     esac
 }
 
-installed_revision() {
+installed_metadata_matches() {
     local metadata=$1
+    local expected_repo_id=$2
+    local expected_repo_type=$3
+    local expected_revision=$4
     local key value
+    local found_repo_id=
+    local found_repo_type=
+    local found_revision=
 
     [[ -f $metadata ]] || return 1
     while IFS='=' read -r key value; do
-        if [[ $key == revision ]]; then
-            printf '%s\n' "$value"
-            return 0
-        fi
+        case $key in
+            repo_id) found_repo_id=$value ;;
+            repo_type) found_repo_type=$value ;;
+            revision) found_revision=$value ;;
+        esac
     done < "$metadata"
-    return 1
+
+    [[ $found_repo_id == "$expected_repo_id" && \
+        $found_repo_type == "$expected_repo_type" && \
+        $found_revision == "$expected_revision" ]]
 }
 
-process_dataset() {
+process_repository() {
     local repo_id=$1
     local revision=$2
     local organization=${repo_id%%/*}
-    local dataset_name=${repo_id#*/}
-    local staging=$STAGING_ROOT/$organization/$dataset_name/$revision
-    local destination=$DATASETS_ROOT/$organization/$dataset_name
+    local repository_name=${repo_id#*/}
+    local staging=$STAGING_ROOT/$organization/$repository_name/$revision
+    local destination=$PUBLISH_ROOT/$organization/$repository_name
     local transfer_metadata=$staging/.cache/huggingface
-    local found_revision
 
-    if ! valid_component "$organization" || ! valid_component "$dataset_name"; then
+    if ! valid_component "$organization" || ! valid_component "$repository_name"; then
         printf 'Error: invalid repository ID: %s\n' "$repo_id" >&2
         return 1
     fi
@@ -85,15 +92,15 @@ process_dataset() {
     if [[ $dry_run == yes ]]; then
         printf '\nDry run: %s at %s\n' "$repo_id" "$revision"
         hf download "$repo_id" \
-            --repo-type dataset \
+            --repo-type "$repo_type" \
             --revision "$revision" \
             --dry-run
         return $?
     fi
 
     if [[ -e $destination ]]; then
-        if found_revision=$(installed_revision "$destination/.lumi-mirror") && \
-                [[ $found_revision == "$revision" ]]; then
+        if installed_metadata_matches "$destination/.lumi-mirror" \
+                "$repo_id" "$repo_type" "$revision"; then
             printf 'Already installed: %s at %s\n' "$repo_id" "$revision"
             return 0
         fi
@@ -106,7 +113,7 @@ process_dataset() {
     printf 'Staging directory: %s\n' "$staging"
 
     if ! hf download "$repo_id" \
-            --repo-type dataset \
+            --repo-type "$repo_type" \
             --revision "$revision" \
             --local-dir "$staging"; then
         printf 'Error: download failed for %s; staging data was retained\n' \
@@ -131,6 +138,7 @@ process_dataset() {
 
     if ! cat > "$staging/.lumi-mirror" <<EOF
 repo_id=$repo_id
+repo_type=$repo_type
 revision=$revision
 downloaded_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 EOF
@@ -162,6 +170,11 @@ while [[ $# -gt 0 ]]; do
         --dry-run)
             dry_run=yes
             ;;
+        --type)
+            shift
+            [[ $# -gt 0 ]] || die '--type requires dataset or model'
+            repo_type=$1
+            ;;
         -h|--help)
             usage
             exit 0
@@ -185,10 +198,28 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
+case $repo_type in
+    dataset)
+        DEFAULT_MANIFEST=$REPO_ROOT/datasets.tsv
+        PUBLISH_ROOT=${DATASETS_ROOT:-/appl/local/laifs/datasets}
+        ;;
+    model)
+        DEFAULT_MANIFEST=$REPO_ROOT/models.tsv
+        PUBLISH_ROOT=${MODELS_ROOT:-/appl/local/laifs/models}
+        ;;
+    *)
+        die "unsupported repository type: $repo_type"
+        ;;
+esac
+
+MANIFEST=${MANIFEST:-$DEFAULT_MANIFEST}
+STAGING_ROOT=$PUBLISH_ROOT/.staging
+LOCK_DIR=$STAGING_ROOT/.download.lock
+
 [[ -f $MANIFEST ]] || die "manifest not found: $MANIFEST"
 command -v hf >/dev/null 2>&1 || die "the 'hf' command is not available"
-valid_datasets_root "$DATASETS_ROOT" || \
-    die "DATASETS_ROOT must be a safe absolute path: $DATASETS_ROOT"
+valid_datasets_root "$PUBLISH_ROOT" || \
+    die "publish root must be a safe absolute path: $PUBLISH_ROOT"
 
 if [[ $dry_run == no ]]; then
     mkdir -p "$STAGING_ROOT" || die "cannot create staging directory: $STAGING_ROOT"
@@ -214,7 +245,7 @@ while IFS=$'\t' read -r repo_id revision stage category enabled license notes ||
     fi
 
     selected=$((selected + 1))
-    if ! process_dataset "$repo_id" "$revision"; then
+    if ! process_repository "$repo_id" "$revision"; then
         failures=$((failures + 1))
     fi
 done < "$MANIFEST"
@@ -223,12 +254,13 @@ if [[ $selected -eq 0 ]]; then
     if [[ -n $repo_filter ]]; then
         die "repository is not listed in the manifest: $repo_filter"
     fi
-    die 'no datasets are enabled in the manifest'
+    die "no ${repo_type}s are enabled in the manifest"
 fi
 
 if [[ $failures -gt 0 ]]; then
-    printf '\n%d of %d dataset operation(s) failed\n' "$failures" "$selected" >&2
+    printf '\n%d of %d repository operation(s) failed\n' \
+        "$failures" "$selected" >&2
     exit 1
 fi
 
-printf '\nCompleted %d dataset operation(s)\n' "$selected"
+printf '\nCompleted %d repository operation(s)\n' "$selected"
