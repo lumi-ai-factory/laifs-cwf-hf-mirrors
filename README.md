@@ -3,7 +3,11 @@
 This repository contains a small set of tools for downloading selected public
 Hugging Face datasets and making them available to LUMI users. The aim is to
 provide useful, ready-to-use datasets close to LUMI compute resources so that
-each user does not need to download a separate copy from the internet.
+each user does not need to download a separate copy from the internet. These
+datasets are also used in the examples for LUMI AI Factory Containerized
+Workflows, see:
+
+[Containerized Workflows](https://github.com/lumi-ai-factory/laifs-cwf-workflows).
 
 The tools manage metadata and downloads. Dataset contents are not stored in
 this Git repository.
@@ -54,33 +58,31 @@ lumi-cwf-datasets-mirror/
     └── status.sh
 ```
 
-`README.md`
+`README.md`:
 
-: Describes the mirror and its operation.
+Describes the mirror and its operation.
 
-`datasets.tsv`
+`datasets.tsv`:
 
-: Lists the intended datasets, their exact upstream revisions, descriptive
-  metadata, and whether each dataset is currently enabled for download. The
-  manifest is tab-separated and acts as the revision lock. The initial manifest
-  lists the complete intended collection with only `HuggingFaceTB/finemath`
-  enabled.
+Lists the intended datasets, their exact upstream revisions, descriptive
+metadata, and whether each dataset is currently enabled for download. The
+manifest is tab-separated and acts as the revision lock.
 
-`scripts/download.sh`
+`scripts/download.sh`:
 
-: Downloads enabled datasets into the private staging directory, prepares
-  completed downloads for read-only use, and publishes them to the final
-  directory. An individual failure does not prevent attempts for other enabled
-  datasets, but the command exits unsuccessfully if any download failed.
+Downloads enabled datasets into the private staging directory, prepares
+completed downloads for read-only use, and publishes them to the final
+directory. An individual failure does not prevent attempts for other enabled
+datasets, but the command exits unsuccessfully if any download failed.
 
-`scripts/status.sh`
+`scripts/status.sh`:
 
-: Shows whether each manifest entry is absent, being staged, or installed, and
-  reports the expected and installed revisions.
+Shows whether each manifest entry is absent, being staged, or installed, and
+reports the expected and installed revisions.
 
-`logs/`
+`logs/`:
 
-: Can hold redirected operation logs. Logs are not committed to Git.
+Can hold redirected operation logs. Logs are not committed to Git.
 
 ## Manifest
 
