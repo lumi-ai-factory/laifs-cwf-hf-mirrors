@@ -71,6 +71,22 @@ set_published_permissions() {
         find "$path" -type d -exec chmod g+s {} +
 }
 
+cleanup_staging_parents() {
+    local path=$1
+
+    if rmdir "$path"; then
+        path=$2
+        rmdir "$path" && return 0
+    fi
+
+    printf 'Warning: could not remove staging directory after publishing: %s\n' \
+        "$path" >&2
+    printf '%s\n' 'It may contain retained data or be in use by another download.' \
+        'Do not remove it manually without first confirming that no other download is running.' \
+        >&2
+    return 0
+}
+
 installed_metadata_matches() {
     local metadata=$1
     local expected_repo_id=$2
@@ -218,6 +234,8 @@ EOF
     fi
 
     printf 'Published: %s\n' "$destination"
+    cleanup_staging_parents "$staging_repository" \
+        "$STAGING_ROOT/$organization"
 }
 
 while [[ $# -gt 0 ]]; do

@@ -217,7 +217,11 @@ If a download is interrupted, its staging directory and Hugging Face transfer
 metadata are retained so that a later run can continue the download. The
 metadata is removed after the download succeeds and before publication.
 Staging paths include the pinned revision, preventing partial files from an old
-revision from being included in a newer one.
+revision from being included in a newer one. After publication, the script
+removes empty repository and organization directories from staging. Failure to
+remove them produces a warning but does not fail the completed operation. Do
+not remove a retained staging directory manually without first confirming that
+no other download is running.
 
 Only one `download.sh` process can modify each artifact root at a time. The
 script uses `.staging/.download.lock` under the selected dataset or model root
