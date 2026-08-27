@@ -37,17 +37,19 @@ the same filesystem:
 /appl/local/laifs/models/.staging/
 ```
 
-Users cannot access the staging directory. After a download completes, its
-temporary Hugging Face metadata is removed, permissions are checked, and the
-repository is moved to its final location with a single `mv` operation. Users
-therefore see either no artifact or a complete artifact, never a partially
-downloaded one. A hidden `.lumi-mirror` file records the repository type,
-repository ID, revision, and download time for `status.sh`.
+Ordinary users cannot access the staging directory. Members of the mirror group
+can read and update staged downloads. After a download completes, its temporary
+Hugging Face metadata is removed, permissions are checked, and the repository is
+moved to its final location with a single `mv` operation. Users therefore see
+either no artifact or a complete artifact, never a partially downloaded one. A
+hidden `.lumi-mirror` file records the repository type, repository ID, revision,
+and download time for `status.sh`.
 
 Published dataset and model trees are read-only to ordinary LUMI users and are
-not updated in place. The maintaining account retains owner write permission.
-Replacing a published repository with a newer upstream revision is a separate,
-explicit maintenance operation.
+not updated in place. Their group owner is `appl_laifs` by default. Group members
+can update files and directories, and setgid directories preserve the group on
+new content. Replacing a published repository with a newer upstream revision is
+a separate, explicit maintenance operation.
 
 ## Repository contents
 
@@ -82,7 +84,7 @@ manifest is tab-separated and acts as the model revision lock.
 `scripts/download.sh`:
 
 Downloads enabled datasets or models into the corresponding private staging
-directory, prepares completed downloads for read-only use, and publishes them
+directory, prepares completed downloads for shared use, and publishes them
 to the final directory. An individual failure does not prevent attempts for
 other enabled repositories, but the command exits unsuccessfully if any
 download failed.
@@ -123,6 +125,7 @@ The download host needs:
 * the Hugging Face `hf` CLI with Xet support
 * access to `huggingface.co`
 * write access to the selected dataset or model root
+* membership in the group used to own mirrored content (`appl_laifs` by default)
 
 The current `huggingface_hub` package installs `hf_xet`, which handles Xet-backed
 downloads automatically:
@@ -193,6 +196,20 @@ A different manifest can also be selected:
 ```bash
 MANIFEST=/path/to/datasets.tsv ./scripts/status.sh
 ```
+
+The group that owns staging and published content defaults to `appl_laifs` and
+can be overridden for testing:
+
+```bash
+MIRROR_GROUP=$(id -gn) DATASETS_ROOT=/path/to/test/datasets \
+    ./scripts/download.sh HuggingFaceTB/finemath
+```
+
+Staging directories are private to the owner and mirror group. Staged files are
+group-readable and group-writable, and staged directories are group-accessible,
+group-writable, and setgid. Before publication, the script recursively assigns
+the mirror group, gives that group read and write access, and gives ordinary
+users read access to files and read and traversal access to directories.
 
 The download script refuses to overwrite an existing published repository. An
 already-installed repository at the manifest revision is reported as complete.

@@ -9,6 +9,8 @@ dry_run=no
 repo_filter=
 repo_type=dataset
 lock_acquired=no
+active_staging=
+MIRROR_GROUP=${MIRROR_GROUP:-appl_laifs}
 
 usage() {
     cat <<EOF
@@ -21,6 +23,7 @@ Environment:
   DATASETS_ROOT  Dataset destination (default: /appl/local/laifs/datasets)
   MODELS_ROOT    Model destination (default: /appl/local/laifs/models)
   MANIFEST       Override the selected manifest path
+  MIRROR_GROUP   Group allowed to update mirrored content (default: appl_laifs)
 EOF
 }
 
@@ -30,6 +33,11 @@ die() {
 }
 
 release_lock() {
+    if [[ -n $active_staging && -d $active_staging ]]; then
+        set_staging_permissions "$active_staging" || \
+            printf 'Warning: failed to restore staging permissions: %s\n' \
+                "$active_staging" >&2
+    fi
     if [[ $lock_acquired == yes ]]; then
         rmdir "$LOCK_DIR" 2>/dev/null || true
     fi
@@ -45,6 +53,22 @@ valid_datasets_root() {
         /*) return 0 ;;
         *) return 1 ;;
     esac
+}
+
+set_staging_permissions() {
+    local path=$1
+
+    chgrp -hR "$MIRROR_GROUP" "$path" &&
+        chmod -R g+rwX,o-rwx "$path" &&
+        find "$path" -type d -exec chmod g+s {} +
+}
+
+set_published_permissions() {
+    local path=$1
+
+    chgrp -hR "$MIRROR_GROUP" "$path" &&
+        chmod -R g+rwX,o+rX,o-w "$path" &&
+        find "$path" -type d -exec chmod g+s {} +
 }
 
 installed_metadata_matches() {
@@ -77,8 +101,11 @@ process_repository() {
     local organization=${repo_id%%/*}
     local repository_name=${repo_id#*/}
     local staging=$STAGING_ROOT/$organization/$repository_name/$revision
+    local staging_repository=$STAGING_ROOT/$organization/$repository_name
     local destination=$PUBLISH_ROOT/$organization/$repository_name
     local transfer_metadata=$staging/.cache/huggingface
+    local destination_parent
+    local download_status=0
 
     if ! valid_component "$organization" || ! valid_component "$repository_name"; then
         printf 'Error: invalid repository ID: %s\n' "$repo_id" >&2
@@ -101,6 +128,11 @@ process_repository() {
     if [[ -e $destination ]]; then
         if installed_metadata_matches "$destination/.lumi-mirror" \
                 "$repo_id" "$repo_type" "$revision"; then
+            if ! set_published_permissions "$destination"; then
+                printf 'Error: failed to set published permissions for %s\n' \
+                    "$repo_id" >&2
+                return 1
+            fi
             printf 'Already installed: %s at %s\n' "$repo_id" "$revision"
             return 0
         fi
@@ -108,14 +140,31 @@ process_repository() {
         return 1
     fi
 
-    mkdir -p "$(dirname "$staging")" || return 1
+    mkdir -p "$staging" || return 1
+    chgrp "$MIRROR_GROUP" "$STAGING_ROOT/$organization" \
+        "$staging_repository" || return 1
+    chmod 2770 "$STAGING_ROOT/$organization" "$staging_repository" || return 1
+    if ! set_staging_permissions "$staging"; then
+        printf 'Error: failed to set staging permissions for %s\n' \
+            "$repo_id" >&2
+        return 1
+    fi
     printf '\nDownloading %s at %s\n' "$repo_id" "$revision"
     printf 'Staging directory: %s\n' "$staging"
 
-    if ! hf download "$repo_id" \
+    active_staging=$staging
+    hf download "$repo_id" \
             --repo-type "$repo_type" \
             --revision "$revision" \
-            --local-dir "$staging"; then
+            --local-dir "$staging" || download_status=$?
+    if ! set_staging_permissions "$staging"; then
+        active_staging=
+        printf 'Error: failed to restore staging permissions for %s\n' \
+            "$repo_id" >&2
+        return 1
+    fi
+    active_staging=
+    if [[ $download_status -ne 0 ]]; then
         printf 'Error: download failed for %s; staging data was retained\n' \
             "$repo_id" >&2
         return 1
@@ -148,9 +197,15 @@ EOF
         return 1
     fi
 
-    chmod -R go-w,a+rX "$staging" || return 1
-    mkdir -p "$(dirname "$destination")" || return 1
-    chmod go-w,a+rx "$(dirname "$destination")" || return 1
+    if ! set_published_permissions "$staging"; then
+        printf 'Error: failed to set published permissions for %s\n' \
+            "$repo_id" >&2
+        return 1
+    fi
+    destination_parent=$(dirname "$destination")
+    mkdir -p "$destination_parent" || return 1
+    chgrp "$MIRROR_GROUP" "$destination_parent" || return 1
+    chmod u+rwx,g+rwx,g+s,o+rx,o-w "$destination_parent" || return 1
 
     if [[ -e $destination ]]; then
         printf 'Error: destination appeared while downloading: %s\n' \
@@ -222,8 +277,16 @@ valid_datasets_root "$PUBLISH_ROOT" || \
     die "publish root must be a safe absolute path: $PUBLISH_ROOT"
 
 if [[ $dry_run == no ]]; then
+    umask 0007
+    mkdir -p "$PUBLISH_ROOT" || die "cannot create publish root: $PUBLISH_ROOT"
+    chgrp "$MIRROR_GROUP" "$PUBLISH_ROOT" || \
+        die "cannot set group on publish root: $PUBLISH_ROOT"
+    chmod u+rwx,g+rwx,g+s,o+rx,o-w "$PUBLISH_ROOT" || \
+        die "cannot set permissions on publish root: $PUBLISH_ROOT"
     mkdir -p "$STAGING_ROOT" || die "cannot create staging directory: $STAGING_ROOT"
-    chmod 700 "$STAGING_ROOT" || die "cannot protect staging directory: $STAGING_ROOT"
+    chgrp "$MIRROR_GROUP" "$STAGING_ROOT" || \
+        die "cannot set group on staging directory: $STAGING_ROOT"
+    chmod 2770 "$STAGING_ROOT" || die "cannot protect staging directory: $STAGING_ROOT"
     if ! mkdir "$LOCK_DIR" 2>/dev/null; then
         die "another download may be running; lock exists: $LOCK_DIR"
     fi
